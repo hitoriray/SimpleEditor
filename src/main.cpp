@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #define ERROR(content)\
-        std::cerr << Hazel::RED << "Error: " << Hazel::MAGENTA << __FILE__ << Hazel::RESET\
+        std::cerr << Hazel::RED << "Error: " << Hazel::YELLOW << __FILE__ << Hazel::RESET\
             << " : in function " << Hazel::CYAN <<  __func__ << Hazel::RESET\
             << " at line " << Hazel::MAGENTA << __LINE__ << Hazel::RESET << std::endl\
             << "        Compiled on " << __DATE__\
@@ -221,7 +221,7 @@ void printLine(const LineBlock* line_content)
 void printPositions(Pos positions[], int n)
 {
     for (int i = 0; i < n; i ++ )
-        cout << i + 1 << "-th match position: " << Hazel::CYAN <<positions[i].row << ", " << positions[i].col << Hazel::RESET << endl;
+        cout << i + 1 << "-th match position: " << Hazel::CYAN <<positions[i].row << "," << positions[i].col << Hazel::RESET << endl;
 }
 
 
@@ -435,7 +435,7 @@ bool matchString(ActiveArea& activeArea, char* match_str, int begin, int end, Po
     Line* cur = activeArea;
     while (cur->next && begin -- ) cur = cur->next;  // 找到第begin行，并让cnt指向第begin行
     int len = end - begin + 1;  // len存储总共有多少行需要匹配
-    while (cur->next && len -- )
+    while (cur && len -- )
     {
         char line_content[MAXLINESIZE];  // 存储当前行的文本内容
         blocks_to_str(cur->content, line_content);  // 将当前行块转成一个大的字符数组
@@ -591,7 +591,6 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
         return false;
     }
     if (!CHECK_BOUND(begin, end, countLine(activeArea))) return false;
-
     // 将区间内的所有行写入输出文件中
     cout << "Writing to the file: '" << Hazel::MAGENTA << output_file << Hazel::RESET <<"' ...\n";
     int len = end - begin + 1;  // len存储要写入输出文件的总行数
@@ -611,11 +610,16 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
         delete tmp;
     }
     left->next = cur;  // 将第left行和end后一行连接起来
-    activeArea->line_no = 0;  // 更新活区当前总行数为0
+    // 修正第left行后面所有行的行号
+    while (cur)
+    {
+        cur->line_no -= end;  // 后面的行号减去end即可
+        cur = cur->next;
+    }
+    activeArea->line_no -= len;  // 更新活区当前总行数
     // 若非活区中还有内容，则从非活区中读入len行到活区中
     if (!emptyArea(otherArea))
     {
-        activeArea->line_no = 10;  // 若要从非活区中读取，则活区中会保留10行内容
         readFromOtherArea(activeArea, otherArea, len);  // 需要读取len行非活区的内容
     }
     ofs.close();  // 关闭输出文件流
@@ -627,11 +631,7 @@ bool readFromOtherArea(ActiveArea& activeArea, ActiveArea& otherArea, int len)
     if (!CHECK_AREA(activeArea) || !CHECK_AREA(otherArea)) return false;
     int actualLength = 0;  // 存储实际写入的行数
     Line* tail = activeArea;  // tail指向活区的尾节点
-    while (tail->next)
-    {
-        tail->next->line_no -= 70;  // 活区中剩余的行号-70
-        tail = tail->next;
-    }
+    while (tail->next) tail = tail->next;
     // 将otherArea的前len行读入activeArea
     Line* head = otherArea->next;  // head指向非活区的首元节点
     while (head && len -- )
@@ -743,7 +743,8 @@ int main()
     ActiveArea activeArea = nullptr, otherArea = nullptr;
 
     char input_file[100] = "input.txt", output_file[100] = "output.txt";
-    // readFile(input_file, output_file);
+    readFile(input_file, output_file);
+    cout << input_file << " " << output_file << endl;
     
     // 若有输入文件，则先让程序从输入文件中读取文本
     if (input_file)
@@ -847,9 +848,10 @@ int main()
             getString(op, match_str, 1, strlen(op) - 1);  // 活区待匹配字符串
             Pos positions[MAXLINESIZE * ACTIVEMAXLEN] = {0};  // 存储匹配成功的位置
             int matched_cnt = 0;  // 记录匹配成功的个数
-            cout << "total matches: " << matched_cnt << endl;
-            if (matchString(activeArea, match_str, 1, countLine(activeArea), positions, matched_cnt))  // 匹配活区内所有match
-                printPositions(positions, matched_cnt);  // 若匹配成功，则打印所有匹配到的位置
+            // 匹配活区内所有match
+            bool is_matched = matchString(activeArea, match_str, 1, countLine(activeArea), positions, matched_cnt);
+            cout << Hazel::CYAN << "total matches: " << matched_cnt << Hazel::RESET << endl;
+            if (is_matched) printPositions(positions, matched_cnt);  // 若匹配成功，则打印所有匹配到的位置
         }
         // 9. 非法输入
         else
