@@ -37,7 +37,7 @@ namespace Hazel
 using namespace std;
 using namespace Hazel;
 
-// 结构体的定义
+/* 结构体的定义 */
 
 // 存储每一行的文本，链式存储
 typedef struct LineBlock {
@@ -112,15 +112,15 @@ private:
 };
 
 
-// 函数的声明
+/* 函数的声明 */
 
-// 显示函数
+/* 显示函数 */
 void showMainMenu();
 void showHelpMenu();
 void showActiveArea(const ActiveArea&, int, int, int);
 void printLine(const LineBlock*);
 void printPositions(Pos[], int);
-// 辅助函数
+/* 辅助函数 */
 void readFile(char*, char*);
 int getValidInput();
 void getNumber(const char*, int&, int, int);
@@ -128,7 +128,7 @@ void getString(const char*, char*, int, int);
 bool CHECK_AREA(const ActiveArea&);
 bool CHECK_BLOCK(const LineBlock*);
 bool CHECK_BOUND(int, int, int, int low = 0);
-// 对Line操作的一些函数
+/* 对Line操作的一些函数 */
 bool initLine(Line*&);
 int countLine(const ActiveArea&);
 bool emptyArea(const ActiveArea&);
@@ -137,17 +137,17 @@ void changeActiveArea(ActiveArea&, ActiveArea&, char*);
 bool deleteLine(ActiveArea&, ActiveArea&, int, int);
 bool matchString(ActiveArea&, char*, int, int, Pos[], int&, int);
 bool replaceString(ActiveArea&, int, char*, char*, int&, int);
-// 对LineBlock操作的一些函数
+/* 对LineBlock操作的一些函数 */
 bool insertLineBlock(LineBlock*&, char*);
 bool emptyLineBlock(const LineBlock*);
 bool clearLineBlock(LineBlock*&);
 void blocks_to_str(LineBlock*, char*);
 void str_to_blocks(char*, LineBlock*&);
-// 对文件操作的一些函数
+/* 对文件操作的一些函数 */
 bool readFromInputFile(char*, ActiveArea&, ActiveArea&, char*);
 bool writeToOutputFile(char*, ActiveArea&, ActiveArea&, int, int);
 bool readFromOtherArea(ActiveArea&, ActiveArea&, int);
-// 对字符串操作的一些函数
+/* 对字符串操作的一些函数 */
 bool insertString(char*, int, const char*);
 bool eraseString(char*, int, int);
 bool kmp(char*, char*, int[], int&);
@@ -155,7 +155,7 @@ bool trie(char*, char*, int[], int&);
 bool bf(char*, char*, int[], int&);
 
 
-// 函数的具体实现
+/* 函数的具体实现 */
 
 /* 1. 显示函数的实现 */
 // 显示主操作界面
@@ -845,6 +845,7 @@ int main()
             }
             cout << Hazel::RED << "Invalid Input!" << Hazel::RESET << endl;
         }
+
         cout << Hazel::GREEN << "Press enter to continue..." << Hazel::RESET;
         cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 判断只接收回车
         clearScreen();  // 每操作一次后都清屏
