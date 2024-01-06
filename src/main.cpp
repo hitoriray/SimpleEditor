@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #define ERROR(content)\
-        std::cerr << Hazel::RED << "Error: " << Hazel::YELLOW << __FILE__ << Hazel::RESET\
+        std::cerr << Hazel::RED << "Error: " << Hazel::MAGENTA << __FILE__ << Hazel::RESET\
             << " : in function " << Hazel::CYAN <<  __func__ << Hazel::RESET\
             << " at line " << Hazel::MAGENTA << __LINE__ << Hazel::RESET << std::endl\
             << "        Compiled on " << __DATE__\
@@ -26,7 +26,7 @@ namespace Hazel
     const char* CYAN = "\033[36m";
     // 一些大小常量
     const int ACTIVEMAXLEN = 100;  // 活区的大小
-    const int MAXLINESIZE = 320;  // 每一行的最大长度
+    const int MAXLINESIZE = 321;  // 每一行的最大长度
     const int MAXBLOCKSIZE = 81;  // 每一个行块的最大长度
     // 字符串匹配算法的选择
     const int KMP = 1;
@@ -161,8 +161,8 @@ bool bf(char*, char*, int[], int&);
 // 显示主操作界面
 void showMainMenu()
 {
-    cout << Hazel::GREEN << "******  Welcome to Hazel Editor  ******" << Hazel::RESET << endl;
-    cout << "If you are new, you can type help to get help" << endl;
+    cout << Hazel::GREEN << "************  Welcome to Hazel Editor  ************" << Hazel::RESET << endl;
+    cout << Hazel::CYAN << "Please input your operation: (If you are new, you can type help to get help menu)" << Hazel::RESET << endl;
 }
 // 显示帮助菜单
 void showHelpMenu()
@@ -230,9 +230,9 @@ void printPositions(Pos positions[], int n)
 void readFile(char* input_file, char* output_file)
 {
     cout << "Please enter Input File: ";
-    cin >> input_file;
+    cin.getline(input_file, 100);
     cout << "Please enter Output File: ";
-    cin >> output_file;
+    cin.getline(output_file, 100);
 }
 // 获取有效输入
 int getValidInput()
@@ -267,7 +267,7 @@ void getString(const char* src, char* dist, int begin, int end)
 // 检查ActiveArea是否合法
 bool CHECK_AREA(const ActiveArea& area)
 {
-    if (emptyArea(area))
+    if (!area)
     {
         ERROR("The area is not exist")
         return false;
@@ -319,7 +319,7 @@ void clearScreen()
 
 /* 3. 对Line操作的相关函数的实现 */
 // 初始化Line*(ActiveArea)
-bool initLine(Line*& line)
+bool initLine(ActiveArea& line)
 {
     try
     {
@@ -346,7 +346,7 @@ bool emptyArea(const ActiveArea& area)
 // 将行插入到第i行后面，当output_file为空时说明正在往非活区中插入新行
 bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea, char* output_file)
 {
-    if (i < 0 || i + 1 > ACTIVEMAXLEN)  // 插入位置不合法
+    if (i < 0 || i > countLine(activeArea))  // 插入位置不合法
     {
         ERROR("The position of the inserted row is invalid")
         return false;
@@ -358,8 +358,9 @@ bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea
     Line* new_line = new Line(i + 1, line_content);  // 新行，作为第i+1行存在与活区中
     if (emptyArea(activeArea))  // 若活区中不存在任何行，则新增该行
     {
-        initLine(activeArea);
+        initLine(activeArea);  // 初始化activeArea（带头节点）
         activeArea->next = new_line;
+        activeArea->line_no = 1;  // 更新当前行数为1
         return true;
     }
     Line* cur = activeArea;  // cur指向插入节点的前趋节点，初始化为头节点
@@ -574,8 +575,9 @@ bool readFromInputFile(char* input_file, ActiveArea& activeArea, ActiveArea& oth
         insertLine(activeArea, text, cnt ++ , otherArea, output_file);  // 将text插入到第cnt行后面
     activeArea->line_no = cnt;  // 更新活区的长度
     // 将剩余部分读入非活区，非活区无长度限制
-    cnt = 0;
-    while (ifs.getline(text, MAXLINESIZE)) insertLine(otherArea, text, cnt, activeArea, nullptr);  // 剩余部分读入非活区
+    if (strlen(text) != 0) insertLine(otherArea, text, 0, activeArea, nullptr);  // 读取第81行
+    cnt = 1;  // 接下来从第82行开始读，并且从otherArea的第1行开始写
+    while (ifs.getline(text, MAXLINESIZE)) insertLine(otherArea, text, cnt ++ , activeArea, nullptr);  // 剩余部分读入非活区
     ifs.close();  // 关闭文件输入流
     return true;
 }
@@ -598,18 +600,24 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
     while (cur->next && -- begin) cur = cur->next;  // 找到第begin行的前趋节点
     Line* left = cur;  // left指向第begin行的前趋
     cur = cur->next;  // 让cur指向第begin行
-    for (int i = 0; i < len; i ++ )  // 依次写入第begin行到第end行
+    for (int i = 0; i < len && cur; i ++ )  // 依次写入第begin行到第end行
     {
         Line* tmp = cur;
         char text[MAXLINESIZE];
-        blocks_to_str(cur->content, text);
-        ofs << text << endl;
+        blocks_to_str(cur->content, text);  // 将行块转成char字符数组
+        ofs << text << endl;  // 依次写入输出文件中
         cur = cur->next;  // 继续下一行
+        clearLineBlock(tmp->content);  // 清空当前行
         delete tmp;
     }
     left->next = cur;  // 将第left行和end后一行连接起来
+    activeArea->line_no = 0;  // 更新活区当前总行数为0
     // 若非活区中还有内容，则从非活区中读入len行到活区中
-    if (!emptyArea(otherArea)) readFromOtherArea(activeArea, otherArea, len);
+    if (!emptyArea(otherArea))
+    {
+        activeArea->line_no = 10;  // 若要从非活区中读取，则活区中会保留10行内容
+        readFromOtherArea(activeArea, otherArea, len);  // 需要读取len行非活区的内容
+    }
     ofs.close();  // 关闭输出文件流
     return true;
 }
@@ -618,19 +626,25 @@ bool readFromOtherArea(ActiveArea& activeArea, ActiveArea& otherArea, int len)
 {
     if (!CHECK_AREA(activeArea) || !CHECK_AREA(otherArea)) return false;
     int actualLength = 0;  // 存储实际写入的行数
-    Line* tail = activeArea->next;  // tail指向活区的尾节点
-    while (tail) tail = tail->next;
+    Line* tail = activeArea;  // tail指向活区的尾节点
+    while (tail->next)
+    {
+        tail->next->line_no -= 70;  // 活区中剩余的行号-70
+        tail = tail->next;
+    }
     // 将otherArea的前len行读入activeArea
     Line* head = otherArea->next;  // head指向非活区的首元节点
     while (head && len -- )
     {
         tail->next = head;
-        otherArea->next = head->next;
+        otherArea->next = head->next;  // otherArea的首元节点后移
         head = otherArea->next;  // 更新head始终指向非活区的首元节点
+        tail->next->line_no += 10;  // 非活区读到活区的每一行的line_no都要加上偏移量(10)
         tail = tail->next;  // tail后移
         tail->next = nullptr;  // tail的next指针置空
         actualLength ++ ;  // 实际写入行数+1
     }
+    otherArea->next = head;  // 更新otherArea的next指针指向非活区的首元节点head
     // 更新活区和非活区的长度
     otherArea->line_no -= actualLength;
     activeArea->line_no += actualLength;
@@ -728,8 +742,8 @@ int main()
 {
     ActiveArea activeArea = nullptr, otherArea = nullptr;
 
-    char input_file[100], output_file[100];
-    readFile(input_file, output_file);
+    char input_file[100] = "input.txt", output_file[100] = "output.txt";
+    // readFile(input_file, output_file);
     
     // 若有输入文件，则先让程序从输入文件中读取文本
     if (input_file)
@@ -762,6 +776,7 @@ int main()
         else if (strcmp(op, "help") == 0)
         {
             showHelpMenu();
+            continue;
         }
         // 3. 行插入
         else if (op[0] == 'i')
@@ -801,6 +816,7 @@ int main()
                 if (cur_line > countLine(activeArea))  // 显示完毕，退出
                 {
                     cout << Hazel::YELLOW << "End of Active Area" << Hazel::RESET << endl;
+                    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个Y的回车
                     break;
                 }
                 cout << "Do you want to continue to the next page? (Y/N): ";
