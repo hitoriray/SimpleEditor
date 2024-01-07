@@ -45,7 +45,11 @@
     },
     "cSpell.words": [
         "ACTIVEMAXLEN",
+        "FILENAMEMAXLEN",
+        "MAXACTIVELEN",
+        "MAXBLOCKLEN",
         "MAXBLOCKSIZE",
+        "MAXFILENAMELEN",
         "MAXLINESIZE"
     ]
 }

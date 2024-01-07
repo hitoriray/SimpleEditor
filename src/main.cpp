@@ -5,14 +5,21 @@
 #include <iomanip>
 #include <unordered_map>
 
-#define ERROR(content)\
+
+/* 宏定义，用于打印各种不同等级的信息，便于调试 */
+#define INFO(message) std::cout << Hazel::GREEN << message << Hazel::RESET << std::endl;
+#define WARNINGS(message) std::cout << Hazel::YELLOW << message << Hazel::RESET << std::endl;
+#define TRACE(message) std::cout << Hazel::MAGENTA << message << Hazel::RESET << std::endl;
+#define ERROR(message)\
         std::cerr << Hazel::RED << "Error: " << Hazel::YELLOW << __FILE__ << Hazel::RESET\
             << " : in function " << Hazel::CYAN <<  __func__ << Hazel::RESET\
             << " at line " << Hazel::MAGENTA << __LINE__ << Hazel::RESET << std::endl\
             << "        Compiled on " << __DATE__\
             << " at " << __TIME__ << std::endl\
-            << "        " << Hazel::RED << content << Hazel::RESET << std::endl;
+            << "        " << Hazel::RED << message << Hazel::RESET << std::endl;
 
+
+/* 定义一些要用到的常量 */
 namespace Hazel
 {
     // 颜色变量
@@ -25,29 +32,28 @@ namespace Hazel
     const char* MAGENTA = "\033[35m";
     const char* CYAN = "\033[36m";
     // 一些大小常量
-    const int ACTIVEMAXLEN = 100;  // 活区的大小
-    const int MAXLINESIZE = 321;  // 每一行的最大长度
-    const int MAXBLOCKSIZE = 81;  // 每一个行块的最大长度
+    const int MAXACTIVELEN = 100;  // 活区的最大长度
+    const int MAXLINELEN = 321;  // 每一行的最大长度
+    const int MAXBLOCKLEN = 81;  // 每一个行块的最大长度
+    const int MAXFILENAMELEN = 100;  // 文件名的最大长度
     // 字符串匹配算法的选择
     const int KMP = 1;
     const int TRIE = 2;
     const int BF = 3;
 };
 
-using namespace std;
-using namespace Hazel;
 
 /* 结构体的定义 */
 
 // 存储每一行的文本，链式存储
 typedef struct LineBlock {
-    char data[MAXBLOCKSIZE];  // 行中每一块的字符内容
+    char data[Hazel::MAXBLOCKLEN];  // 行中每一块的字符内容
     LineBlock* next;  // 指向下一个行块
     // 默认构造
     LineBlock(const char* text, LineBlock* ne = nullptr)
     {
         int length = strlen(text);
-        memcpy(data, text, min(length, MAXLINESIZE - 1));  // 把text的内容拷贝给data
+        memcpy(data, text, std::min(length, Hazel::MAXLINELEN - 1));  // 把text的内容拷贝给data
         data[length] = '\0';
         next = ne;
     }
@@ -129,14 +135,15 @@ bool CHECK_AREA(const ActiveArea&);
 bool CHECK_BLOCK(const LineBlock*);
 bool CHECK_BOUND(int, int, int, int low = 0);
 /* 对Line操作的一些函数 */
-bool initLine(Line*&);
+bool initArea(ActiveArea&);
 int countLine(const ActiveArea&);
 bool emptyArea(const ActiveArea&);
-bool insertLine(ActiveArea&, char*, int, ActiveArea& otherArea, char* output_file = nullptr);
+bool insertLine(ActiveArea&, char*, int, ActiveArea&, char* output_file = nullptr);
 void changeActiveArea(ActiveArea&, ActiveArea&, char*);
 bool deleteLine(ActiveArea&, ActiveArea&, int, int);
 bool matchString(ActiveArea&, char*, int, int, Pos[], int&, int);
-bool replaceString(ActiveArea&, int, char*, char*, int&, int);
+bool replaceString(ActiveArea&, int, char*, char*, int&, int type = Hazel::KMP);
+bool replaceString(ActiveArea&, char*, char*, int, int, int&, int type = Hazel::KMP);
 /* 对LineBlock操作的一些函数 */
 bool insertLineBlock(LineBlock*&, char*);
 bool emptyLineBlock(const LineBlock*);
@@ -144,7 +151,7 @@ bool clearLineBlock(LineBlock*&);
 void blocks_to_str(LineBlock*, char*);
 void str_to_blocks(char*, LineBlock*&);
 /* 对文件操作的一些函数 */
-bool readFromInputFile(char*, ActiveArea&, ActiveArea&, char*);
+bool readFromInputFile(char*, ActiveArea&, ActiveArea&, char* ouput_file = nullptr);
 bool writeToOutputFile(char*, ActiveArea&, ActiveArea&, int, int);
 bool readFromOtherArea(ActiveArea&, ActiveArea&, int);
 /* 对字符串操作的一些函数 */
@@ -157,36 +164,38 @@ bool bf(char*, char*, int[], int&);
 
 /* 函数的具体实现 */
 
+
 /* 1. 显示函数的实现 */
+
 // 显示主操作界面
 void showMainMenu()
 {
-    cout << Hazel::GREEN << "************  Welcome to Hazel Editor  ************" << Hazel::RESET << endl;
-    cout << Hazel::CYAN << "Please input your operation: (If you are new, you can type help to get help menu)" << Hazel::RESET << endl;
+    INFO("************  Welcome to Hazel Editor  ************")
+    std::cout << Hazel::CYAN << "Please input your operation: (If you are new, you can type help to get help menu)" << Hazel::RESET << std::endl;
 }
 // 显示帮助菜单
 void showHelpMenu()
 {
-    cout << Hazel::GREEN << "help menu" << Hazel::RESET << endl;
-    cout << Hazel::CYAN << "********************************************************************************" << Hazel::RESET << endl;
-    cout << Hazel::CYAN << "*" << Hazel::RESET << " 1. Insert Line: Format - i<line_number><Enter><text><Enter>. Inserts <text> after line <line_number> in the active area.\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 2. Delete Line: Format - d<line_number1>[ <line_number2>]<Enter>. Deletes line <line_number1> (to line <line_number2>) in the active area.\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 3. Switch Active Area: Format - n<Enter>\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 4. Display Active Area: Format - p<Enter>\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 5. Replace String: Format - S<line_number>@<string1>@<string2><Enter>. Replaces <string1> with <string2> in line <line_number> of the active area.\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 6. Match String: Format - m<string><Enter>. Matches all occurrences of <string> in the active area.\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 7. Read From File: Format - r <file_name><enter>.\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 8. Write To File: Format - w <file_name><enter>.\n"
-        << Hazel::CYAN << "*" << Hazel::RESET << " 9. Exit: Format - exit" << endl;
-    cout << Hazel::CYAN << "********************************************************************************" << Hazel::RESET << endl;
+    INFO("help menu")
+    std::cout << Hazel::CYAN << "********************************************************************************" << Hazel::RESET << std::endl;
+    std::cout << Hazel::CYAN << "*" << Hazel::RESET << " 1. Insert Line: Format - i<line_number><Enter><text><Enter>.\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 2. Delete Line: Format - d<line_number1>[ <line_number2>].\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 3. Switch Active Area: Format - n\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 4. Display Active Area: Format - p\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 5. Replace String: Format - S<line_number1>( <line_number2>)@<string1>@<string2>.\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 6.  Match String: Format - m <string>[ <line_number1>[ <line_number2>]].\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 7. Read From File: Format - r <file_name>.\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 8. Write To File: Format - w <file_name>[ <line_number1>[ <line_number2>]].\n"
+        << Hazel::CYAN << "*" << Hazel::RESET << " 9. Exit Editor: Format - exit" << std::endl;
+    std::cout << Hazel::CYAN << "********************************************************************************" << Hazel::RESET << std::endl;
 }
 // 显示活区，从第begin行开始显示，一次显示cnt行
 void showActiveArea(const ActiveArea& activeArea, int begin, int cnt, int page_num)
 {
-    cout << Hazel::GREEN << "---------------  Current Active Area (Page " << page_num << ")  ---------------" << Hazel::RESET << endl;
+    INFO("---------------  Current Active Area (Page " << page_num << ")  ---------------")
     if (emptyArea(activeArea))
     {
-        cout << Hazel::YELLOW << setw(4) << "Current Active Area is None!\n" << Hazel::RESET << endl;
+        WARNINGS("    Current Active Area is None!\n")
         return;
     }
     // 输出当前活区
@@ -194,45 +203,46 @@ void showActiveArea(const ActiveArea& activeArea, int begin, int cnt, int page_n
     while (cur && begin -- ) cur = cur->next;  // 找出要显示的活区起始行第begin行
     if (!cur)  // 若cur为空，说明活区遍历到尾了
     {
-        cout << Hazel::YELLOW << setw(4) << "Current Active Area is None!\n" << Hazel::RESET << endl;
+        WARNINGS("    Current Active Area is None!\n")
         return;
     }
     // 此时cur指向第begin行
     while (cur && cnt -- )
     {
-        cout << Hazel::BLUE << std::setw(4) << cur->line_no << Hazel::RESET << ' ';  // 显示行号（蓝色显示）
+        std::cout << Hazel::BLUE << std::setw(4) << cur->line_no << Hazel::RESET << ' ';  // 显示行号（蓝色显示）
         printLine(cur->content);
         cur = cur->next;
     }
-    cout << Hazel::YELLOW << setw(60) << "total line: " << activeArea->line_no << Hazel::RESET << endl;
-    cout << endl;
+    std::cout << Hazel::YELLOW << std::setw(60) << "total line: " << activeArea->line_no << Hazel::RESET << std::endl;  // 显示总行数（黄色显示）
+    std::cout << std::endl;
 }
 // 打印一行的文本内容
 void printLine(const LineBlock* line_content)
 {
     while (line_content)
     {
-        cout << line_content->data;
+        std::cout << line_content->data;
         line_content = line_content->next;
     }
-    cout << endl;
+    std::cout << std::endl;
 }
 // 打印位置(row,col)函数
 void printPositions(Pos positions[], int n)
 {
     for (int i = 0; i < n; i ++ )
-        cout << i + 1 << "-th match position: " << Hazel::CYAN <<positions[i].row << "," << positions[i].col << Hazel::RESET << endl;
+        std::cout << i + 1 << "-th match position: " << Hazel::CYAN <<positions[i].row << "," << positions[i].col << Hazel::RESET << std::endl;
 }
 
 
 /* 2. 辅助函数的实现 */
+
 // 读取输入输出文件名
 void readFile(char* input_file, char* output_file)
 {
-    cout << "Please enter Input File: ";
-    cin.getline(input_file, 100);
-    cout << "Please enter Output File: ";
-    cin.getline(output_file, 100);
+    std::cout << "Please enter Input File: ";
+    std::cin.getline(input_file, Hazel::MAXFILENAMELEN);
+    std::cout << "Please enter Output File: ";
+    std::cin.getline(output_file, Hazel::MAXFILENAMELEN);
 }
 // 获取有效输入
 int getValidInput()
@@ -240,12 +250,12 @@ int getValidInput()
     int input;
     while (true)
     {
-        cin >> input;
-        if (cin.fail())  // 检查输入有效性
+        std::cin >> input;
+        if (std::cin.fail())  // 检查输入有效性
         {
-            cout << Hazel::RED << "Invalid Input! Please input a number" << Hazel::RESET << endl;
-            cin.clear();  // 清除错误状态
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');  // 丢弃无效的输入
+            WARNINGS("Invalid Input! Please input a number")
+            std::cin.clear();  // 清除错误状态
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 丢弃无效的输入
         }
         else break;
     }
@@ -254,12 +264,14 @@ int getValidInput()
 // 读取串src中从下标为[begin,end]的区间内的数字给res （若end超出范围表示读到字符串结束）
 void getNumber(const char* src, int& res, int begin, int end)
 {
+    if (!CHECK_BOUND(begin, end, strlen(src), 0)) return;
     res = 0;
     for (int i = begin; src[i] && i <= end; i ++ ) res = res * 10 + (src[i] - '0');
 }
 // 读取src的字串src[begin,end]给dist
 void getString(const char* src, char* dist, int begin, int end)
 {
+    if (!CHECK_BOUND(begin, end, strlen(src), 0)) return;
     int cnt = 0;
     for (int i = begin; i <= end; i ++ ) dist[cnt ++ ] = src[i];
     dist[cnt] = '\0';
@@ -317,13 +329,15 @@ void clearScreen()
     #endif
 }
 
-/* 3. 对Line操作的相关函数的实现 */
-// 初始化Line*(ActiveArea)
-bool initLine(ActiveArea& line)
+
+/* 3. 对Area操作的相关函数的实现 */
+
+// 初始化ActiveArea
+bool initArea(ActiveArea& area)
 {
     try
     {
-        line = new Line(0, nullptr, nullptr);
+        area = new Line(0, nullptr, nullptr);
     }
     catch (std::bad_alloc& e)
     {
@@ -335,13 +349,14 @@ bool initLine(ActiveArea& line)
 // 返回活区的长度（总行数）
 int countLine(const ActiveArea& area)
 {
-    if (emptyArea(area)) return 0;
+    if (!CHECK_AREA(area)) return -1;
     return area->line_no;
 }
 // 判断ActiveArea是否为空
 bool emptyArea(const ActiveArea& area)
 {
-    return area == nullptr || area->next == nullptr;
+    if (!CHECK_AREA(area)) return false;
+    return area->line_no == 0/* && area->next == nullptr*/;
 }
 // 将行插入到第i行后面，当output_file为空时说明正在往非活区中插入新行
 bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea, char* output_file)
@@ -358,7 +373,7 @@ bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea
     Line* new_line = new Line(i + 1, line_content);  // 新行，作为第i+1行存在与活区中
     if (emptyArea(activeArea))  // 若活区中不存在任何行，则新增该行
     {
-        initLine(activeArea);  // 初始化activeArea（带头节点）
+        initArea(activeArea);  // 初始化activeArea（带头节点）
         activeArea->next = new_line;
         activeArea->line_no = 1;  // 更新当前行数为1
         return true;
@@ -381,7 +396,7 @@ bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea
     }
     activeArea->line_no ++ ;  // 更新活区（或非活区）长度
     // 只有写入活区时才需要检查：若插入新行后活区长度超出限制，则将第一行输出（只有output_file有值时，才是插入到活区中）
-    if (activeArea->line_no > ACTIVEMAXLEN && output_file)
+    if (activeArea->line_no > Hazel::MAXACTIVELEN && output_file)
         writeToOutputFile(output_file, activeArea, otherArea, 1, 1);  // 将活区中的第1行输出
     return true;
 }
@@ -429,18 +444,17 @@ bool deleteLine(ActiveArea& activeArea, ActiveArea& otherArea, int begin, int en
 // 在活区activeArea中的[begin,end]行区间内匹配字符串match_str，并把结果放入Pos数组中，cnt为Pos数组长度，type指定匹配算法，默认使用KMP算法进行匹配。若匹配成功，返回true
 bool matchString(ActiveArea& activeArea, char* match_str, int begin, int end, Pos positions[], int& cnt, int type = Hazel::KMP)
 {
-    if (!CHECK_AREA(activeArea)) return false;
-    if (!CHECK_BOUND(begin, end, countLine(activeArea))) return false;
+    if (!CHECK_AREA(activeArea) || !CHECK_BOUND(begin, end, countLine(activeArea), 1)) return false;
     cnt = 0;  // cnt初始化成0
+    int len = end - begin + 1;  // len存储总共有多少行需要匹配
     Line* cur = activeArea;
     while (cur->next && begin -- ) cur = cur->next;  // 找到第begin行，并让cnt指向第begin行
-    int len = end - begin + 1;  // len存储总共有多少行需要匹配
     while (cur && len -- )
     {
-        char line_content[MAXLINESIZE];  // 存储当前行的文本内容
+        char line_content[Hazel::MAXLINELEN];  // 存储当前行的文本内容
         blocks_to_str(cur->content, line_content);  // 将当前行块转成一个大的字符数组
         // 在当前行内进行匹配（kmp）
-        int pos[MAXLINESIZE] = {0}, matched_cnt = 0;  // pos中位置下标从0开始，因此下边需要+1
+        int pos[Hazel::MAXLINELEN] = {0}, matched_cnt = 0;  // pos中位置下标从0开始，因此下边需要+1
         // 指定匹配算法
         if (type == Hazel::KMP) kmp(line_content, match_str, pos, matched_cnt);
         else if (type == Hazel::TRIE) trie(line_content, match_str, pos, matched_cnt);
@@ -451,20 +465,25 @@ bool matchString(ActiveArea& activeArea, char* match_str, int begin, int end, Po
         // 继续进行下一行匹配
         cur = cur->next;
     }
+    INFO("Match Ends")
     return cnt > 0;  // 若cnt大于0，说明匹配到了，否则，没有匹配到
 }
-// 将活区中第line_no行的字符串original替换成字符串replaced，type指定匹配算法，默认使用KMP算法
-bool replaceString(ActiveArea& activeArea, int line_no, char* original, char* replaced, int& cnt, int type = Hazel::KMP)
+// 将活区中第line_no行的字符串original替换成字符串replaced，cnt记录替换成功次数，type指定匹配算法，默认使用KMP算法
+bool replaceString(ActiveArea& activeArea, int line_no, char* original, char* replaced, int& cnt, int type)
 {
     if (!CHECK_AREA(activeArea)) return false;
-    cnt = 0;  // 初始化总替换次数cnt为0
+    if (line_no < 1 || line_no > countLine(activeArea))
+    {
+        ERROR("The parameter 'line_no' is invalid")
+        return false;
+    }
     int tmp = line_no;  // 临时变量记录目标行号
-    char line_content[MAXLINESIZE];  // 存储当前行所有文本内容
+    char line_content[Hazel::MAXLINELEN];  // 存储当前行所有文本内容
     Line* cur = activeArea;
     while (cur->next && tmp -- ) cur = cur->next;  // 找到第line_no行
     blocks_to_str(cur->content, line_content);  // 将第line_no行的每一块合并成一个完整的字符串赋值给line_content
     // 字符串匹配
-    int matched[MAXLINESIZE] = {0};  // matched存储匹配成功的下标
+    int matched[Hazel::MAXLINELEN] = {0};  // matched存储匹配成功的下标
     // 指定匹配算法
     if (type == Hazel::KMP) kmp(line_content, original, matched, cnt);
     else if (type == Hazel::TRIE) trie(line_content, original, matched, cnt);
@@ -478,7 +497,7 @@ bool replaceString(ActiveArea& activeArea, int line_no, char* original, char* re
     {
         int idx = matched[i] + last;  // 获取匹配到的每个字符在母串line_content中的起点下标，需要加上偏移量
         // idx始终指向匹配到的字符串在line_content中的下标
-        if (idx > MAXLINESIZE) break;  // 若超出范围，直接退出，替换结束
+        if (idx > Hazel::MAXLINELEN) break;  // 若超出范围，直接退出，替换结束
         eraseString(line_content, idx, idx + original_length - 1);  // 删除字符串line_content中的original字符串
         insertString(line_content, idx, replaced);  // 在第idx个字符后面插入字符串replaced
         last += replaced_length - original_length;  // 更新偏移量last
@@ -487,10 +506,24 @@ bool replaceString(ActiveArea& activeArea, int line_no, char* original, char* re
     // !注意：若用临时变量LineBlock* content记录cur->content不会把操作完的结果映射到activeArea上
     return cnt > 0;
 }
+// 将活区中第[begin,end]区间内所有行的字符串original替换成字符串replaced，cnt记录替换成功次数，type指定匹配算法，默认使用KMP算法
+bool replaceString(ActiveArea& activeArea, char* original, char* replaced, int begin, int end, int& cnt, int type)
+{
+    if (!CHECK_AREA(activeArea) || !CHECK_BOUND(begin, end, countLine(activeArea), 1)) return false;
+    for (int i = begin; i <= end; i ++ )
+    {
+        int line_match_cnt = 0;  // 存储每一行成功匹配的次数
+        replaceString(activeArea, i, original, replaced, line_match_cnt, type);
+        cnt += line_match_cnt;
+    }
+    INFO("Replace Ends")
+    return cnt > 0;
+}
 
 /* 4. LineBlock相关函数的实现 */
+
 // 将行块插入到line_block后面，尾插法
-bool insertLineBlock(LineBlock*& line_block, char* text)  
+bool insertLineBlock(LineBlock*& line_block, char* text)
 {
     if (!line_block)  // 若该行为空，则直接插入
     {
@@ -542,23 +575,25 @@ void str_to_blocks(char* src, LineBlock*& dist)
     if (!emptyLineBlock(dist)) clearLineBlock(dist);  // 先清空dist
     // 再将src分块
     int len = strlen(src);  // len存储当前还剩下多少字符没处理
-    char block_content[MAXBLOCKSIZE];  // 存储每一块的文本
+    char block_content[Hazel::MAXBLOCKLEN];  // 存储每一块的文本
     int idx = 0;  // 记录src的下标索引
     while (len > 0)  // 依次处理每一块
     {
         int block_len = 0;  // 记录当前块的大小
         for (int i = idx; src[i]; i ++ )  // 将src中的内容拷贝到每一块中
         {
-            if (block_len == MAXBLOCKSIZE - 1) break;
+            if (block_len == Hazel::MAXBLOCKLEN - 1) break;
             block_content[block_len ++ ] = src[i];
         }
         block_content[block_len] = '\0';  // 将最后一个字符置为'\0'，表示块结束
         insertLineBlock(dist, block_content);  // 将该块内容插入到dist中
-        len -= MAXBLOCKSIZE - 1;  // 更新len
+        len -= Hazel::MAXBLOCKLEN - 1;  // 更新len
     }
 }
 
+
 /* 5. 对文件操作的一些函数 */
+
 // 将输入文件中的内容读入活区中，读取失败返回false
 bool readFromInputFile(char* input_file, ActiveArea& activeArea, ActiveArea& otherArea, char* output_file)
 {
@@ -568,23 +603,33 @@ bool readFromInputFile(char* input_file, ActiveArea& activeArea, ActiveArea& oth
         ERROR("Input file opening failed")
         return false;
     }
-    cout << "Reading from the file: '" << Hazel::MAGENTA << input_file << Hazel::RESET <<  "' ...\n";
-    char text[MAXLINESIZE];
+    std::cout << "Reading from the file: '" << Hazel::MAGENTA << input_file << Hazel::RESET <<  "' ...\n";
+    char text[Hazel::MAXLINELEN];
     int cnt = 0;  // 行数
-    while (ifs.getline(text, MAXLINESIZE) && cnt < ACTIVEMAXLEN - 20)  // 最多读取ACTIVEMAXLEN - 20行
-        insertLine(activeArea, text, cnt ++ , otherArea, output_file);  // 将text插入到第cnt行后面
-    activeArea->line_no = cnt;  // 更新活区的长度
-    // 将剩余部分读入非活区，非活区无长度限制
-    if (strlen(text) != 0) insertLine(otherArea, text, 0, activeArea, nullptr);  // 读取第81行
-    cnt = 1;  // 接下来从第82行开始读，并且从otherArea的第1行开始写
-    while (ifs.getline(text, MAXLINESIZE)) insertLine(otherArea, text, cnt ++ , activeArea, nullptr);  // 剩余部分读入非活区
+    // 说明正在往活区中读入内容
+    if (output_file != nullptr)
+    {
+        while (ifs.getline(text, Hazel::MAXLINELEN) && cnt < Hazel::MAXACTIVELEN - 20)  // 最多读取ACTIVEMAXLEN - 20行
+            insertLine(activeArea, text, cnt ++ , otherArea, output_file);  // 将text插入到第cnt行后面
+        activeArea->line_no = cnt;  // 更新活区的长度
+        // 将剩余部分读入非活区，非活区无长度限制
+        if (strlen(text) != 0) insertLine(otherArea, text, 0, activeArea, nullptr);  // 读取第81行到非活区中
+        cnt = 1;  // 接下来从第82行开始读，并且从otherArea的第1行开始写
+        while (ifs.getline(text, Hazel::MAXLINELEN)) insertLine(otherArea, text, cnt ++ , activeArea, nullptr);  // 剩余部分读入非活区
+    }
+    // 说明正在往非活区中读入内容
+    else
+    {
+        while (ifs.getline(text, Hazel::MAXLINELEN)) insertLine(otherArea, text, cnt ++ , activeArea, nullptr);
+    }
+    INFO("End of Reading")
     ifs.close();  // 关闭文件输入流
     return true;
 }
 // 将活区中区间[begin, end]行的内容写入输出文件
 bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& otherArea, int begin, int end)
 {
-    std::ofstream ofs(output_file, ios::app);  // 以追加的方式打开文件
+    std::ofstream ofs(output_file, std::ios::app);  // 以追加的方式打开文件
     if (!ofs.is_open())
     {
         ERROR("Output file opening failed")
@@ -592,9 +637,9 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
     }
     if (!CHECK_BOUND(begin, end, countLine(activeArea))) return false;
     // 将区间内的所有行写入输出文件中
-    cout << "Writing to the file: '" << Hazel::MAGENTA << output_file << Hazel::RESET <<"' ...\n";
+    std::cout << "Writing to the file: '" << Hazel::MAGENTA << output_file << Hazel::RESET <<"' ...\n";
     int len = end - begin + 1;  // len存储要写入输出文件的总行数
-    char text[MAXBLOCKSIZE];
+    char text[Hazel::MAXBLOCKLEN];
     Line* cur = activeArea;
     while (cur->next && -- begin) cur = cur->next;  // 找到第begin行的前趋节点
     Line* left = cur;  // left指向第begin行的前趋
@@ -602,9 +647,9 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
     for (int i = 0; i < len && cur; i ++ )  // 依次写入第begin行到第end行
     {
         Line* tmp = cur;
-        char text[MAXLINESIZE];
+        char text[Hazel::MAXLINELEN];
         blocks_to_str(cur->content, text);  // 将行块转成char字符数组
-        ofs << text << endl;  // 依次写入输出文件中
+        ofs << text << std::endl;  // 依次写入输出文件中
         cur = cur->next;  // 继续下一行
         clearLineBlock(tmp->content);  // 清空当前行
         delete tmp;
@@ -622,6 +667,7 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
     {
         readFromOtherArea(activeArea, otherArea, len);  // 需要读取len行非活区的内容
     }
+    INFO("End of Writing")
     ofs.close();  // 关闭输出文件流
     return true;
 }
@@ -648,11 +694,13 @@ bool readFromOtherArea(ActiveArea& activeArea, ActiveArea& otherArea, int len)
     // 更新活区和非活区的长度
     otherArea->line_no -= actualLength;
     activeArea->line_no += actualLength;
+    INFO("Read from Other Area successfully")
     return true;
 }
 
 
 /* 6. 字符串相关函数的实现 */
+
 // 在str中第pos个字符的后面插入字符串value
 bool insertString(char* str, int pos, const char* value)
 {
@@ -666,7 +714,7 @@ bool insertString(char* str, int pos, const char* value)
     // 先将原串插入位置后面的所有字符向后偏移len位，为value的插入腾出空间来
     for (int i = n + len; i > pos + len - 1; i -- )
     {
-        if (i >= MAXLINESIZE - 1) continue;  // 如果超出范围，则丢弃
+        if (i >= Hazel::MAXLINELEN - 1) continue;  // 如果超出范围，则丢弃
         str[i] = str[i - len];
     }
     // 再把要添加的字符串value拷贝到腾出的那块空间中
@@ -680,7 +728,6 @@ bool eraseString(char* str, int begin, int end)
 {
     int n = strlen(str);
     if (!CHECK_BOUND(begin, end, n)) return false;
-    
     int len = end - begin + 1;  // 存储要删除的字符长度
     for (int i = end + 1; str[i]; i ++ ) str[i - len] = str[i];  // 将后面的字符往前移len个单位
     str[n - len] = '\0';  // 标记字符结束符
@@ -691,12 +738,13 @@ bool kmp(char* str, char* match_str, int pos[], int& cnt)
 {
     cnt = 0;  // 初始化cnt为0
     int n = strlen(match_str), m = strlen(str);  // n为模式串长度，m为母串长度
-    char p[MAXLINESIZE + 1], s[MAXLINESIZE + 1];  // p：模式串，s：母串。偏移量+1，更好计算
-    memcpy(p + 1, match_str, min(n, MAXLINESIZE - 1));
-    memcpy(s + 1, str, min(m, MAXLINESIZE - 1));
+    if (n > m) return false;
+    char p[Hazel::MAXLINELEN + 1], s[Hazel::MAXLINELEN + 1];  // p：模式串，s：母串。偏移量+1，更好计算
+    memcpy(p + 1, match_str, std::min(n, Hazel::MAXLINELEN - 1));
+    memcpy(s + 1, str, std::min(m, Hazel::MAXLINELEN - 1));
     p[n + 1] = s[m + 1] = '\0';  // 标记结束符
     // 求next数组
-    int ne[MAXLINESIZE + 1] = {0};
+    int ne[Hazel::MAXLINELEN + 1] = {0};
     for (int i = 2, j = 0; i <= n; i ++ )
     { // ne[1] = 0，因为如果第一个匹配不上，就只能从0开始重新匹配了
         while (j && p[i] != p[j + 1]) j = ne[j]; // 与KMP匹配过程类似
@@ -720,31 +768,38 @@ bool kmp(char* str, char* match_str, int pos[], int& cnt)
 bool trie(char* src, char* match_str, int pos[], int& cnt)
 {
     Trie tr;
+    if (strlen(match_str) > strlen(src)) return false;
     return tr.search(src, match_str, pos, cnt);
 }
 // bf，O(nm)，匹配母串str中的所有模式串match_str，并将其位置放入pos数组中，长度为cnt。若匹配成功，返回true
 bool bf(char* str, char* match_str, int pos[], int& cnt)
 {
     cnt = 0;
-    int str_len = strlen(str), match_len = strlen(match_str);
-    for (int i = 0; i <= str_len - match_len; i ++ ) {
+    int n = strlen(str), m = strlen(match_str);
+    if (m > n) return false;
+    // 暴力枚举每次匹配的起点
+    for (int i = 0; i <= n - m; i ++ )
+    {
         int j;
-        for (j = 0; j < match_len; j ++ )
+        for (j = 0; j < m; j ++ )  // 枚举匹配长度
             if (str[i + j] != match_str[j])
                 break;
-        // 匹配成功，保存位置
-        if (j == match_len) pos[cnt ++ ] = i;
+        // 若匹配成功，保存位置
+        if (j == m) pos[cnt ++ ] = i;
     }
     return cnt > 0;
 }
 
+
+/* 主函数 */
 int main()
 {
     ActiveArea activeArea = nullptr, otherArea = nullptr;
+    initArea(activeArea);
+    initArea(otherArea);
 
-    char input_file[100] = "input.txt", output_file[100] = "output.txt";
+    char input_file[Hazel::MAXFILENAMELEN + 1] = "input.txt", output_file[Hazel::MAXFILENAMELEN + 1] = "output.txt";
     readFile(input_file, output_file);
-    cout << input_file << " " << output_file << endl;
     
     // 若有输入文件，则先让程序从输入文件中读取文本
     if (input_file)
@@ -752,22 +807,22 @@ int main()
         readFromInputFile(input_file, activeArea, otherArea, output_file);
     }
     // 开始读入操作
-    char op[MAXLINESIZE] = {0};
+    char op[Hazel::MAXLINELEN] = {0};
     int count = 0;  // count记录当前已经进行多少次操作
     while (true)
     {
         // 打印上次操作
-        cout << Hazel::MAGENTA <<"last operation: " << (strlen(op) == 0 ? "none" : op) << Hazel::RESET << endl;
+        TRACE("last operation: " + (strlen(op) == 0 ? std::string("none") : std::string(op)))
         // 显示活区
         showActiveArea(activeArea, 1, countLine(activeArea), 1);
         // 展示主操作界面
         showMainMenu();
         // 读入本次操作
-        cin.getline(op, sizeof op);
+        std::cin.getline(op, sizeof op);
         // 操作次数+1
         count ++ ;
 
-        // 判断操作类型
+        /* 判断操作类型 */
         // 1. 退出系统
         if (strcmp(op, "exit") == 0)
         {
@@ -782,8 +837,8 @@ int main()
         // 3. 行插入
         else if (op[0] == 'i')
         {
-            char str[MAXLINESIZE];
-            cin.getline(str, sizeof str);
+            char str[Hazel::MAXLINELEN];
+            std::cin.getline(str, sizeof str);
             int idx = 0;
             getNumber(op, idx, 1, strlen(op) - 1);  // 插入到第idx行
             insertLine(activeArea, str, idx, otherArea, output_file);  // 调用插入函数
@@ -816,42 +871,115 @@ int main()
                 cur_line += show_lines;
                 if (cur_line > countLine(activeArea))  // 显示完毕，退出
                 {
-                    cout << Hazel::YELLOW << "End of Active Area" << Hazel::RESET << endl;
-                    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个Y的回车
+                    INFO("End of Active Area")
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个'Y'的回车
                     break;
                 }
-                cout << "Do you want to continue to the next page? (Y/N): ";
-                char choice; cin >> choice;  // 输入选择
+                std::cout << "Do you want to continue to the next page? (Y/N): ";
+                char choice; std::cin >> choice;  // 输入选择
                 if (choice != 'Y') break;  // 若不继续显示或者显示完毕，退出
             }
         }
         // 7. 字符串替换
         else if (op[0] == 'S')
         {
+            int begin = 0, end = 0;
             int i, j;
             for (i = 1; op[i] != '@'; i ++ );  // 让i指向第一个'@'处
             for (j = i + 1; op[j] != '@'; j ++ );  // 让j指向第二个'@'处
-            int line_no = 0;
-            char original[MAXLINESIZE], replaced[MAXLINESIZE];
-            getNumber(op, line_no, 1, i - 1);  // 获取行号
+            char original[Hazel::MAXLINELEN], replaced[Hazel::MAXLINELEN];
+            int k = 1;
+            while (op[k] && op[k] != ',') k ++ ;  // 让k指向逗号处（或字符串结束符'\0'处）
+            if (op[k] == ',')  // 说明存在<行号2>
+            {
+                getNumber(op, begin, 1, k - 1);  // 获取<行号1>
+                getNumber(op, end, k + 1, i - 1);  // 获取<行号2>
+            }
+            else
+            {
+                getNumber(op, begin, 1, i - 1);  // 仅获取<行号1>
+                end = begin;
+            }
             getString(op, original, i + 1, j - 1);  // 获取原串
             getString(op, replaced, j + 1, strlen(op) - 1); // 获取替换串
             int replaced_cnt = 0;  // 存储替换次数
-            replaceString(activeArea, line_no, original, replaced, replaced_cnt);  // 调用替换字符串函数
-            cout << Hazel::CYAN << "total replaced counts: " << replaced_cnt << endl
-                << "replaced successfully" << Hazel::RESET << endl;
+            replaceString(activeArea, original, replaced, begin, end, replaced_cnt);  // 调用替换字符串函数（默认使用KMP）
+            std::cout << Hazel::CYAN << "total replaced counts: " << replaced_cnt << std::endl;
         }
         // 8. 字符串匹配
         else if (op[0] == 'm')
         {
-            char match_str[MAXLINESIZE];
-            getString(op, match_str, 1, strlen(op) - 1);  // 活区待匹配字符串
-            Pos positions[MAXLINESIZE * ACTIVEMAXLEN] = {0};  // 存储匹配成功的位置
+            char match_str[Hazel::MAXLINELEN];
+            int i = 1;
+            while (op[i] && op[i] == ' ') i ++ ;  // 过滤空格，让i指向待匹配串的起始下标
+            int j = i;
+            while (op[j] && op[j] != ' ') j ++ ;  // 让j指向下一个空格处（或字符串结束符'\0'处）
+            getString(op, match_str, i, j - 1);  // 获取待匹配字符串
+            i = j;
+            while (op[i] && op[i] == ' ') i ++ ;  // 过滤空格，让i指向<行号1>起始下标处
+            j = i;
+            while (op[j] && op[j] != ' ') j ++ ;  // 过滤<行号1>，让j指向下一个空格处（或'\0'处）
+            int begin = 0, end = 0;
+            if (i == j)  // 说明只输入的匹配串
+            {
+                begin = 1, end = countLine(activeArea);
+            }
+            else
+            {
+                getNumber(op, begin, i, j - 1);  // 获取行号1
+                i = j;
+                while (op[i] && op[i] == ' ') i ++ ;  // 过滤空格，让i指向<行号2>起始下标处
+                j = i;
+                while (op[j] && op[j] != ' ') j ++ ;  // 过滤<行号2>，让j指向最终结束符'\0'处
+                if (i == j)  // 说明只输入了<行号1>
+                    end = begin;
+                else  // 否则，获取<行号2>
+                    getNumber(op, end, i, j - 1);
+            }
+            Pos positions[Hazel::MAXLINELEN * Hazel::MAXACTIVELEN] = {0};  // 存储匹配成功的位置
             int matched_cnt = 0;  // 记录匹配成功的个数
             // 匹配活区内所有match
-            bool is_matched = matchString(activeArea, match_str, 1, countLine(activeArea), positions, matched_cnt);
-            cout << Hazel::CYAN << "total matches: " << matched_cnt << Hazel::RESET << endl;
+            bool is_matched = matchString(activeArea, match_str, begin, end, positions, matched_cnt);
+            std::cout << Hazel::CYAN << "total matches: " << matched_cnt << Hazel::RESET << std::endl;
             if (is_matched) printPositions(positions, matched_cnt);  // 若匹配成功，则打印所有匹配到的位置
+        }
+        // 9. 读取输入文件到非活区中
+        else if (op[0] == 'r')
+        {
+            int i = 1;
+            while (op[i] && op[i] == ' ') i ++ ;  // 过滤空格，i指向<文件名>起始下标
+            getString(op, input_file, i, strlen(op) - 1);
+            if (!emptyArea(otherArea))  // 若非活区中还存在内容，则无法读取
+            {
+                WARNINGS("Other Area is not empty, can't read from other Input File")
+                continue;
+            }
+            readFromInputFile(input_file, activeArea, otherArea);
+        }
+        // 10. 写入输出文件
+        else if (op[0] == 'w')
+        {
+            int i = 1;
+            while (op[i] && op[i] == ' ') i ++ ;  // 过滤空格，i指向<文件名>起始下标
+            int j = i;
+            while (op[j] && op[j] != ' ') j ++ ;  // 过滤文件名，j指向下一个空格处（或'\0'处）
+            getString(op, output_file, i, j - 1);  // 获取<文件名>
+            while (op[j] && op[j] == ' ') j ++ ;  // 过滤空格，j指向<行号1>处
+            i = j;
+            while (op[i] && op[i] != ' ') i ++ ;  // 过滤第一个数字，i指向下一个空格处（或'\0'处）
+            int begin = 0, end = 0;
+            if (i == j) begin = 1, end = countLine(activeArea);  // 说明只输入了<文件名>
+            else
+            {
+                getNumber(op, begin, j, i - 1);  // 获取<行号1>
+                while (op[i] && op[i] == ' ') i ++ ;  // 过滤空格，i指向<行号2>处
+                j = i;
+                while (op[j]) j ++ ;  // 过滤第二个数字，j指向最后字符串结束符'\0'处
+                if (i == j) end = begin;  // 说明只输入了<行号1>
+                else getNumber(op, end, i, j - 1);  // 获取<行号2>
+            }
+            // 写入获取中区间[begin,end]行的内容到输出文件中
+            writeToOutputFile(output_file, activeArea, otherArea, begin, end);
         }
         // 9. 非法输入
         else
@@ -861,11 +989,11 @@ int main()
                 clearScreen();
                 continue;
             }
-            cout << Hazel::RED << "Invalid Input!" << Hazel::RESET << endl;
+            WARNINGS("Invalid Input!")
         }
-
-        cout << Hazel::GREEN << "Press enter to continue..." << Hazel::RESET;
-        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 判断只接收回车
+        // 按下回车以继续
+        std::cout << Hazel::GREEN << "Press enter to continue..." << Hazel::RESET;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 判断只接收回车
         clearScreen();  // 每操作一次后都清屏
     }
 

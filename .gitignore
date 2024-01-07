@@ -1,4 +1,4 @@
-*/*.swp
-*/*.txt
+*.swp
+*.txt
 bin/
 *.exe
