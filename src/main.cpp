@@ -594,27 +594,27 @@ void str_to_blocks(char* src, LineBlock*& dist)
 
 /* 5. 对文件操作的一些函数 */
 
-// 将输入文件中的内容读入活区中，读取失败返回false
+// 将输入文件中的内容读入活区中，读取失败返回false，若output_file为空，则表示读入非活区中
 bool readFromInputFile(char* input_file, ActiveArea& activeArea, ActiveArea& otherArea, char* output_file)
 {
     std::ifstream ifs(input_file);
     if (!ifs.is_open())
     {
-        ERROR("Input file opening failed")
+        ERROR("Input File: '" << input_file << "' opening failed")
         return false;
     }
     std::cout << "Reading from the file: '" << Hazel::MAGENTA << input_file << Hazel::RESET <<  "' ...\n";
     char text[Hazel::MAXLINELEN];
-    int cnt = 0;  // 行数
-    // 说明正在往活区中读入内容
+    int cnt = countLine(activeArea);  // cnt记录当前活区行数
+    // 说明正在往活区中读入内容（此时非活区必须为空）
     if (output_file != nullptr)
     {
-        while (ifs.getline(text, Hazel::MAXLINELEN) && cnt < Hazel::MAXACTIVELEN - 20)  // 最多读取ACTIVEMAXLEN - 20行
+        while (ifs.getline(text, Hazel::MAXLINELEN) && cnt < Hazel::MAXACTIVELEN - 20)  // 最多读取到ACTIVEMAXLEN - 20行
             insertLine(activeArea, text, cnt ++ , otherArea, output_file);  // 将text插入到第cnt行后面
-        activeArea->line_no = cnt;  // 更新活区的长度
+        activeArea->line_no = cnt;  // 更新活区的长度（在insertLine中其实会自动更新当前活区长度）
         // 将剩余部分读入非活区，非活区无长度限制
         if (strlen(text) != 0) insertLine(otherArea, text, 0, activeArea, nullptr);  // 读取第81行到非活区中
-        cnt = 1;  // 接下来从第82行开始读，并且从otherArea的第1行开始写
+        cnt = 1;  // 此时cnt记录非活区长度，接下来从第82行开始读，并且从otherArea的第1行开始写
         while (ifs.getline(text, Hazel::MAXLINELEN)) insertLine(otherArea, text, cnt ++ , activeArea, nullptr);  // 剩余部分读入非活区
     }
     // 说明正在往非活区中读入内容
@@ -798,7 +798,7 @@ int main()
     initArea(activeArea);
     initArea(otherArea);
 
-    char input_file[Hazel::MAXFILENAMELEN + 1] = "input.txt", output_file[Hazel::MAXFILENAMELEN + 1] = "output.txt";
+    char input_file[Hazel::MAXFILENAMELEN + 1] = "../data/input/input.txt", output_file[Hazel::MAXFILENAMELEN + 1] = "../data/output/output.txt";
     readFile(input_file, output_file);
     
     // 若有输入文件，则先让程序从输入文件中读取文本
@@ -871,7 +871,7 @@ int main()
                 cur_line += show_lines;
                 if (cur_line > countLine(activeArea))  // 显示完毕，退出
                 {
-                    INFO("End of Active Area")
+                    TRACE("End of Active Area")
                     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个'Y'的回车
                     break;
                 }
@@ -943,7 +943,7 @@ int main()
             std::cout << Hazel::CYAN << "total matches: " << matched_cnt << Hazel::RESET << std::endl;
             if (is_matched) printPositions(positions, matched_cnt);  // 若匹配成功，则打印所有匹配到的位置
         }
-        // 9. 读取输入文件到非活区中
+        // 9. 读取输入文件到活区中（前提是非活区中无内容）
         else if (op[0] == 'r')
         {
             int i = 1;
@@ -951,10 +951,10 @@ int main()
             getString(op, input_file, i, strlen(op) - 1);
             if (!emptyArea(otherArea))  // 若非活区中还存在内容，则无法读取
             {
-                WARNINGS("Other Area is not empty, can't read from other Input File")
+                WARNINGS("Other Area is not empty, can't read from Input File: '" <<  input_file << "\'")
                 continue;
             }
-            readFromInputFile(input_file, activeArea, otherArea);
+            readFromInputFile(input_file, activeArea, otherArea, output_file);
         }
         // 10. 写入输出文件
         else if (op[0] == 'w')
