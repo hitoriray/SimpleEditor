@@ -50,6 +50,7 @@
         "MAXBLOCKLEN",
         "MAXBLOCKSIZE",
         "MAXFILENAMELEN",
-        "MAXLINESIZE"
+        "MAXLINESIZE",
+        "STRINGHASH"
     ]
 }

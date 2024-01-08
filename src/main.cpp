@@ -39,7 +39,8 @@ namespace Hazel
     // 字符串匹配算法的选择
     const int KMP = 1;
     const int TRIE = 2;
-    const int BF = 3;
+    const int STRINGHASH = 3;
+    const int BF = 4;
 };
 
 
@@ -159,6 +160,8 @@ bool insertString(char*, int, const char*);
 bool eraseString(char*, int, int);
 bool kmp(char*, char*, int[], int&);
 bool trie(char*, char*, int[], int&);
+unsigned long long get(int, int, unsigned long long[], unsigned long long[]);
+bool string_hash(char*, char*, int[], int&);
 bool bf(char*, char*, int[], int&);
 
 
@@ -289,7 +292,7 @@ bool CHECK_AREA(const ActiveArea& area)
 // 检查行块是否合法
 bool CHECK_BLOCK(const LineBlock* block)
 {
-    if (emptyLineBlock(block))
+    if (!block)
     {
         ERROR("The block is not exist")
         return false;
@@ -371,13 +374,13 @@ bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea
     str_to_blocks(text, line_content);  // 将字符串转换成块的形式存储在line_content中
     // 2. 将文本插入活区中
     Line* new_line = new Line(i + 1, line_content);  // 新行，作为第i+1行存在与活区中
-    if (emptyArea(activeArea))  // 若活区中不存在任何行，则新增该行
-    {
-        initArea(activeArea);  // 初始化activeArea（带头节点）
-        activeArea->next = new_line;
-        activeArea->line_no = 1;  // 更新当前行数为1
-        return true;
-    }
+    // if (emptyArea(activeArea))  // 若活区中不存在任何行，则新增该行
+    // {
+    //     initArea(activeArea);  // 初始化activeArea（带头节点）
+    //     activeArea->next = new_line;
+    //     activeArea->line_no = 1;  // 更新当前行数为1
+    //     return true;
+    // }
     Line* cur = activeArea;  // cur指向插入节点的前趋节点，初始化为头节点
     while (cur->next && i -- ) cur = cur->next;  // 寻找插入位置
     if (i > 0)
@@ -458,6 +461,7 @@ bool matchString(ActiveArea& activeArea, char* match_str, int begin, int end, Po
         // 指定匹配算法
         if (type == Hazel::KMP) kmp(line_content, match_str, pos, matched_cnt);
         else if (type == Hazel::TRIE) trie(line_content, match_str, pos, matched_cnt);
+        else if (type == Hazel::STRINGHASH) string_hash(line_content, match_str, pos, matched_cnt);
         else if (type == Hazel::BF) bf(line_content, match_str, pos, matched_cnt);
         else kmp(line_content, match_str, pos, matched_cnt);
         // 将匹配成功的字符串位置存入positions中
@@ -483,19 +487,20 @@ bool replaceString(ActiveArea& activeArea, int line_no, char* original, char* re
     while (cur->next && tmp -- ) cur = cur->next;  // 找到第line_no行
     blocks_to_str(cur->content, line_content);  // 将第line_no行的每一块合并成一个完整的字符串赋值给line_content
     // 字符串匹配
-    int matched[Hazel::MAXLINELEN] = {0};  // matched存储匹配成功的下标
+    int pos[Hazel::MAXLINELEN] = {0};  // pos存储匹配成功的下标
     // 指定匹配算法
-    if (type == Hazel::KMP) kmp(line_content, original, matched, cnt);
-    else if (type == Hazel::TRIE) trie(line_content, original, matched, cnt);
-    else if (type == Hazel::BF) bf(line_content, original, matched, cnt);
-    else kmp(line_content, original, matched, cnt);
+    if (type == Hazel::KMP) kmp(line_content, original, pos, cnt);
+    else if (type == Hazel::TRIE) trie(line_content, original, pos, cnt);
+    else if (type == Hazel::STRINGHASH) string_hash(line_content, original, pos, cnt);
+    else if (type == Hazel::BF) bf(line_content, original, pos, cnt);
+    else kmp(line_content, original, pos, cnt);
     // 枚举每个替换点
     int original_length = strlen(original);
     int replaced_length = strlen(replaced);
     int last = 0;  // last存储替换成新串后整个字符串的偏移量
     for (int i = 0; i < cnt; i ++ )
     {
-        int idx = matched[i] + last;  // 获取匹配到的每个字符在母串line_content中的起点下标，需要加上偏移量
+        int idx = pos[i] + last;  // 获取匹配到的每个字符在母串line_content中的起点下标，需要加上偏移量
         // idx始终指向匹配到的字符串在line_content中的下标
         if (idx > Hazel::MAXLINELEN) break;  // 若超出范围，直接退出，替换结束
         eraseString(line_content, idx, idx + original_length - 1);  // 删除字符串line_content中的original字符串
@@ -525,7 +530,7 @@ bool replaceString(ActiveArea& activeArea, char* original, char* replaced, int b
 // 将行块插入到line_block后面，尾插法
 bool insertLineBlock(LineBlock*& line_block, char* text)
 {
-    if (!line_block)  // 若该行为空，则直接插入
+    if (emptyLineBlock(line_block))  // 若该行为空，则直接插入
     {
         line_block = new LineBlock(text);
         return true;
@@ -733,7 +738,7 @@ bool eraseString(char* str, int begin, int end)
     str[n - len] = '\0';  // 标记字符结束符
     return true;
 }
-// kmp，O(n)，匹配母串str中的所有模式串match_str，并将其位置放入pos数组中，长度为cnt。若匹配成功，返回true
+// kmp，O(n+m)，匹配母串str中的所有模式串match_str，并将其位置放入pos数组中，长度为cnt。若匹配成功，返回true
 bool kmp(char* str, char* match_str, int pos[], int& cnt)
 {
     cnt = 0;  // 初始化cnt为0
@@ -765,11 +770,43 @@ bool kmp(char* str, char* match_str, int pos[], int& cnt)
     return cnt > 0;
 }
 // trie，O(n)，匹配母串str中的所有模式串match_str，并将其位置放入pos数组中，长度为cnt。若匹配成功，返回true
-bool trie(char* src, char* match_str, int pos[], int& cnt)
+bool trie(char* str, char* match_str, int pos[], int& cnt)
 {
     Trie tr;
-    if (strlen(match_str) > strlen(src)) return false;
-    return tr.search(src, match_str, pos, cnt);
+    if (strlen(match_str) > strlen(str)) return false;
+    return tr.search(str, match_str, pos, cnt);
+}
+// 字符串哈希，O(n)，匹配母串str中的所有模式串match_str，并将其位置放入pos数组中，长度为cnt。若匹配成功，返回true
+unsigned long long get(int l, int r, unsigned long long h[], unsigned long long p[])
+{
+    return h[r] - h[l - 1] * p[r - l + 1];
+}
+bool string_hash(char* str, char* match_str, int pos[], int& cnt)
+{
+    unsigned long long h[Hazel::MAXLINELEN], p[Hazel::MAXLINELEN];  // h:存储母串str中每个子串的哈希值, p[i]:存储p的i次方
+    const int P = 131;  // 哈希基数，取131或13331
+    int n = strlen(match_str), m = strlen(str);  // n为模式串长度，m为母串长度
+    if (n > m) return false;
+    char p[Hazel::MAXLINELEN + 1], s[Hazel::MAXLINELEN + 1];  // p：模式串，s：母串。偏移量+1，更好计算
+    memcpy(p + 1, match_str, std::min(n, Hazel::MAXLINELEN - 1));
+    memcpy(s + 1, str, std::min(m, Hazel::MAXLINELEN - 1));
+    // 1. 初始化p数组和h数组
+    p[0] = 1;
+    for (int i = 1; i <= m; i ++ )
+    {
+        p[i] = p[i - 1] * P;
+        h[i] = h[i - 1] * P + s[i];
+    }
+    // 2. 求出模式串的哈希值
+    unsigned long long target_hash_value = 0;
+    for (int i = 1; i <= n; i ++ ) target_hash_value = target_hash_value * P + p[i];
+    // 3. 在母串中匹配模式串，寻找与模式串哈希值相同的子串
+    for (int l = 1; l + n - 1 <= m; l ++ )  // 枚举左端点
+    {
+        int r = l + n - 1;  // 右端点
+        if (get(l, r, h, p) == target_hash_value) pos[cnt ++ ] = l;
+    }
+    return cnt > 0;
 }
 // bf，O(nm)，匹配母串str中的所有模式串match_str，并将其位置放入pos数组中，长度为cnt。若匹配成功，返回true
 bool bf(char* str, char* match_str, int pos[], int& cnt)
@@ -872,7 +909,7 @@ int main()
                 if (cur_line > countLine(activeArea))  // 显示完毕，退出
                 {
                     TRACE("End of Active Area")
-                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个'Y'的回车
+                    // std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个'Y'的回车
                     break;
                 }
                 std::cout << "Do you want to continue to the next page? (Y/N): ";
