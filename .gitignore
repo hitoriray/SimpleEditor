@@ -1,6 +1,8 @@
 *.swp
 bin/
 cmake-build-debug/
+out/
 .vscode/
 .idea/
 *.tmp
+.vs/

@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iomanip>
 #include <unordered_map>
+#include <chrono>
+#include <thread>
 
 
 /* 宏定义，用于打印各种不同等级的信息，便于调试 */
@@ -41,7 +43,7 @@ namespace Hazel
     const int TRIE = 2;
     const int STRINGHASH = 3;
     const int BF = 4;
-};
+}
 
 
 /* 结构体的定义 */
@@ -117,6 +119,32 @@ public:
 private:
     TrieNode* root;
 };
+// 计时器，时刻记录程序运行时长
+class Timer {
+public:
+	Timer() {
+		start = std::chrono::high_resolution_clock::now();
+	}
+
+	~Timer() {
+		auto end = std::chrono::high_resolution_clock::now();
+		auto duration = end - start;
+		double total_time = duration.count();
+		INFO("Total running time: " << total_time << " seconds")
+	}
+
+    float getTime() const 
+    {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = end - start;
+        return std::chrono::duration_cast<std::chrono::duration<float>>(duration).count();  // 返回时间（单位：s）
+        // return duration.count() * 1000.0f;  // 返回时间（单位：ms）
+    }
+
+private:
+    std::chrono::high_resolution_clock::time_point start;
+};
+Timer timer;  // 声明一个全局计时器，代表程序一旦执行，就立刻计时
 
 
 /* 函数的声明 */
@@ -174,6 +202,7 @@ bool bf(char*, char*, int[], int&);
 void showMainMenu()
 {
     INFO("************  Welcome to Hazel Editor  ************")
+    TRACE(std::setw(60) << "Running time: " << timer.getTime() << " s")
     std::cout << Hazel::CYAN << "Please input your operation: (If you are new, you can type help to get help menu)" << Hazel::RESET << std::endl;
 }
 // 显示帮助菜单
@@ -256,7 +285,7 @@ int getValidInput()
         std::cin >> input;
         if (std::cin.fail())  // 检查输入有效性
         {
-            WARNINGS("Invalid Input! Please input a number")
+            ERROR("Invalid Input! Please input a number")
             std::cin.clear();  // 清除错误状态
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 丢弃无效的输入
         }
@@ -607,7 +636,7 @@ bool readFromInputFile(char* input_file, ActiveArea& activeArea, ActiveArea& oth
     // 说明正在往活区中读入内容（此时非活区必须为空）
     if (output_file != nullptr)
     {
-        while (ifs.getline(text, Hazel::MAXLINELEN) && cnt < Hazel::MAXACTIVELEN - 20)  // 最多读取到ACTIVEMAXLEN - 20行
+        while (ifs.getline(text, Hazel::MAXLINELEN) && cnt < Hazel::MAXACTIVELEN - 20)  // 最多读取到 MAXACTIVELEN - 20行
             insertLine(activeArea, text, cnt ++ , otherArea, output_file);  // 将text插入到第cnt行后面
         activeArea->line_no = cnt;  // 更新活区的长度（在insertLine中其实会自动更新当前活区长度）
         // 将剩余部分读入非活区，非活区无长度限制
@@ -637,7 +666,6 @@ bool writeToOutputFile(char* output_file, ActiveArea& activeArea, ActiveArea& ot
     // 将区间内的所有行写入输出文件中
     std::cout << "Writing to the file: '" << Hazel::MAGENTA << output_file << Hazel::RESET <<"' ...\n";
     int len = end - begin + 1;  // len存储要写入输出文件的总行数
-    char text[Hazel::MAXBLOCKLEN];
     Line* cur = activeArea;
     while (cur->next && -- begin) cur = cur->next;  // 找到第begin行的前趋节点
     Line* left = cur;  // left指向第begin行的前趋
@@ -828,16 +856,16 @@ bool bf(char* str, char* match_str, int pos[], int& cnt)
     return cnt > 0;
 }
 
-
 /* 主函数 */
 int main(int argc, char* argv[])
 {
     ActiveArea activeArea = nullptr, otherArea = nullptr;
+    // 一定要记得初始化！！！
     initArea(activeArea);
     initArea(otherArea);
 
     char input_file[Hazel::MAXFILENAMELEN + 1], output_file[Hazel::MAXFILENAMELEN + 1];
-
+    // 用户可以通过main参数来输入文件名给程序
     if (argc >= 3)
     {
         strcpy(input_file, argv[1]);
@@ -847,7 +875,6 @@ int main(int argc, char* argv[])
     {
         ERROR("Usage: " << argv[0] << " <input_file> <output_file>")
         readFile(input_file, output_file);  // 若未从参数传入文件信息，则自行输入文件信息
-        std::cout << input_file << ", " << output_file << std::endl;
     }
     
     // 若有输入文件，则先让程序从输入文件中读取文本
@@ -1038,7 +1065,7 @@ int main(int argc, char* argv[])
                 clearScreen();
                 continue;
             }
-            WARNINGS("Invalid Input!")
+            ERROR("Invalid Input!")
         }
         // 按下回车以继续
         std::cout << Hazel::GREEN << "Press enter to continue..." << Hazel::RESET;

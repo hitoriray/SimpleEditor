@@ -32,7 +32,7 @@ def create_output_file(output_file):
 
 
 if __name__ == "__main__":
-    # 在脚本开始处进行一次编译即可
+    # 在脚本开始处进行一次编译即可?
     compile_simple_editor()
     # 测试数据
     for i, num_lines in enumerate([50, 100, 150, 200, 250], start=1):
