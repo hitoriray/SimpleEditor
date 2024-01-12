@@ -374,13 +374,6 @@ bool insertLine(ActiveArea& activeArea, char* text, int i, ActiveArea& otherArea
     str_to_blocks(text, line_content);  // 将字符串转换成块的形式存储在line_content中
     // 2. 将文本插入活区中
     Line* new_line = new Line(i + 1, line_content);  // 新行，作为第i+1行存在与活区中
-    // if (emptyArea(activeArea))  // 若活区中不存在任何行，则新增该行
-    // {
-    //     initArea(activeArea);  // 初始化activeArea（带头节点）
-    //     activeArea->next = new_line;
-    //     activeArea->line_no = 1;  // 更新当前行数为1
-    //     return true;
-    // }
     Line* cur = activeArea;  // cur指向插入节点的前趋节点，初始化为头节点
     while (cur->next && i -- ) cur = cur->next;  // 寻找插入位置
     if (i > 0)
@@ -690,12 +683,20 @@ bool readFromOtherArea(ActiveArea& activeArea, ActiveArea& otherArea, int len)
         tail->next = head;
         otherArea->next = head->next;  // otherArea的首元节点后移
         head = otherArea->next;  // 更新head始终指向非活区的首元节点
-        tail->next->line_no += 10;  // 非活区读到活区的每一行的line_no都要加上偏移量(10)
+        // tail->next->line_no += countLine(activeArea);  // 非活区读到活区的每一行的line_no都要加上偏移量
         tail = tail->next;  // tail后移
         tail->next = nullptr;  // tail的next指针置空
         actualLength ++ ;  // 实际写入行数+1
     }
     otherArea->next = head;  // 更新otherArea的next指针指向非活区的首元节点head
+    // Update: 暴力修正活区中的所有行号-len
+    Line* cur = activeArea->next;
+    int no = 1;
+    while (cur)
+    {
+        cur->line_no = no ++ ;
+        cur = cur->next;
+    }
     // 更新活区和非活区的长度
     otherArea->line_no -= actualLength;
     activeArea->line_no += actualLength;
@@ -787,8 +788,8 @@ bool string_hash(char* str, char* match_str, int pos[], int& cnt)
     const int P = 131;  // 哈希基数，取131或13331
     int n = strlen(match_str), m = strlen(str);  // n为模式串长度，m为母串长度
     if (n > m) return false;
-    char p[Hazel::MAXLINELEN + 1], s[Hazel::MAXLINELEN + 1];  // p：模式串，s：母串。偏移量+1，更好计算
-    memcpy(p + 1, match_str, std::min(n, Hazel::MAXLINELEN - 1));
+    char pt[Hazel::MAXLINELEN + 1], s[Hazel::MAXLINELEN + 1];  // pt：模式串，s：母串。偏移量+1，更好计算
+    memcpy(pt + 1, match_str, std::min(n, Hazel::MAXLINELEN - 1));
     memcpy(s + 1, str, std::min(m, Hazel::MAXLINELEN - 1));
     // 1. 初始化p数组和h数组
     p[0] = 1;
@@ -799,7 +800,7 @@ bool string_hash(char* str, char* match_str, int pos[], int& cnt)
     }
     // 2. 求出模式串的哈希值
     unsigned long long target_hash_value = 0;
-    for (int i = 1; i <= n; i ++ ) target_hash_value = target_hash_value * P + p[i];
+    for (int i = 1; i <= n; i ++ ) target_hash_value = target_hash_value * P + pt[i];
     // 3. 在母串中匹配模式串，寻找与模式串哈希值相同的子串
     for (int l = 1; l + n - 1 <= m; l ++ )  // 枚举左端点
     {
@@ -829,17 +830,28 @@ bool bf(char* str, char* match_str, int pos[], int& cnt)
 
 
 /* 主函数 */
-int main()
+int main(int argc, char* argv[])
 {
     ActiveArea activeArea = nullptr, otherArea = nullptr;
     initArea(activeArea);
     initArea(otherArea);
 
-    char input_file[Hazel::MAXFILENAMELEN + 1] = "../data/input/input.txt", output_file[Hazel::MAXFILENAMELEN + 1] = "../data/output/output.txt";
-    readFile(input_file, output_file);
+    char input_file[Hazel::MAXFILENAMELEN + 1], output_file[Hazel::MAXFILENAMELEN + 1];
+
+    if (argc >= 3)
+    {
+        strcpy(input_file, argv[1]);
+        strcpy(output_file, argv[2]);
+    }
+    else
+    {
+        ERROR("Usage: " << argv[0] << " <input_file> <output_file>")
+        readFile(input_file, output_file);  // 若未从参数传入文件信息，则自行输入文件信息
+        std::cout << input_file << ", " << output_file << std::endl;
+    }
     
     // 若有输入文件，则先让程序从输入文件中读取文本
-    if (input_file)
+    if (strlen(input_file) == 0)
     {
         readFromInputFile(input_file, activeArea, otherArea, output_file);
     }
@@ -909,7 +921,7 @@ int main()
                 if (cur_line > countLine(activeArea))  // 显示完毕，退出
                 {
                     TRACE("End of Active Area")
-                    // std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个'Y'的回车
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');  // 过滤最后一个'Y'的回车
                     break;
                 }
                 std::cout << "Do you want to continue to the next page? (Y/N): ";
